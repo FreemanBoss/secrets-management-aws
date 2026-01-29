@@ -1,0 +1,349 @@
+# =============================================================================
+# Scenario C: HashiCorp Vault with Dynamic Secrets
+# =============================================================================
+# This deployment demonstrates the most advanced secrets management approach:
+# HashiCorp Vault with Dynamic Secrets using the Vault Agent Injector.
+#
+# How it works:
+# 1. Vault Agent Injector mutates pods with vault.hashicorp.com annotations
+# 2. An init container authenticates to Vault using Kubernetes auth
+# 3. Vault's Database Secret Engine generates DYNAMIC credentials
+# 4. Each pod gets a unique, short-lived database user
+# 5. When the pod terminates, the credentials are revoked
+#
+# Pros:
+# - Dynamic, short-lived secrets (maximum security)
+# - Automatic revocation on pod termination
+# - Centralized audit logging
+# - Multi-cloud support
+# - Advanced features (transit, PKI, etc.)
+#
+# Cons:
+# - Operational complexity
+# - Self-hosted infrastructure
+# - Learning curve
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Service Account for Vault Authentication
+# -----------------------------------------------------------------------------
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-vault
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: finance-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/scenario: vault
+
+---
+# -----------------------------------------------------------------------------
+# ConfigMap - Non-sensitive configuration
+# -----------------------------------------------------------------------------
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config-vault
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: finance-api
+    app.kubernetes.io/scenario: vault
+data:
+  SECRET_SOURCE: "file"
+  SECRETS_PATH: "/vault/secrets"
+  DB_HOST: "${DB_HOST}"
+  DB_PORT: "5432"
+  DB_NAME: "${DB_NAME}"
+  PORT: "8080"
+  LOG_LEVEL: "INFO"
+  # Vault-specific
+  VAULT_ADDR: "http://vault.vault.svc.cluster.local:8200"
+
+---
+# -----------------------------------------------------------------------------
+# Deployment with Vault Agent Injector
+# -----------------------------------------------------------------------------
+# The Vault Agent Injector works via annotations that trigger mutation.
+# The key annotations are:
+# - vault.hashicorp.com/agent-inject: enables injection
+# - vault.hashicorp.com/role: the Vault role to authenticate as
+# - vault.hashicorp.com/agent-inject-secret-*: secrets to inject
+# - vault.hashicorp.com/agent-inject-template-*: template for secret format
+# -----------------------------------------------------------------------------
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-api-vault
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: finance-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/scenario: vault
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finance-api
+      app.kubernetes.io/scenario: vault
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finance-api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/scenario: vault
+      annotations:
+        # =================================================================
+        # VAULT AGENT INJECTOR ANNOTATIONS
+        # =================================================================
+        
+        # Enable Vault Agent injection
+        vault.hashicorp.com/agent-inject: "true"
+        
+        # Vault role to use for authentication
+        vault.hashicorp.com/role: "finance-api"
+        
+        # Enable agent pre-population (wait for secrets before starting app)
+        vault.hashicorp.com/agent-pre-populate-only: "false"
+        
+        # Keep agent running for dynamic secret renewal
+        vault.hashicorp.com/agent-run-as-same-user: "true"
+        
+        # =================================================================
+        # SECRET 1: Dynamic Database Credentials
+        # =================================================================
+        # This fetches DYNAMIC credentials from Vault's Database engine.
+        # Each pod gets a unique database user that is revoked on termination.
+        # =================================================================
+        
+        vault.hashicorp.com/agent-inject-secret-db-credentials.json: "database/creds/finance-api-role"
+        vault.hashicorp.com/agent-inject-template-db-credentials.json: |
+          {{- with secret "database/creds/finance-api-role" -}}
+          {
+            "username": "{{ .Data.username }}",
+            "password": "{{ .Data.password }}",
+            "host": "${DB_HOST}",
+            "port": 5432,
+            "dbname": "${DB_NAME}",
+            "lease_id": "{{ .LeaseID }}",
+            "lease_duration": {{ .LeaseDuration }},
+            "renewable": {{ .Renewable }}
+          }
+          {{- end -}}
+        
+        # =================================================================
+        # SECRET 2: Static API Credentials (from KV engine)
+        # =================================================================
+        
+        vault.hashicorp.com/agent-inject-secret-api-credentials.json: "secret/data/finance-api/api"
+        vault.hashicorp.com/agent-inject-template-api-credentials.json: |
+          {{- with secret "secret/data/finance-api/api" -}}
+          {
+            "api_key": "{{ .Data.data.api_key }}",
+            "api_secret": "{{ .Data.data.api_secret }}"
+          }
+          {{- end -}}
+        
+        # =================================================================
+        # SECRET 3: Combined config file for the application
+        # =================================================================
+        
+        vault.hashicorp.com/agent-inject-secret-config.json: "database/creds/finance-api-role"
+        vault.hashicorp.com/agent-inject-template-config.json: |
+          {{- with secret "database/creds/finance-api-role" -}}
+          {{- $api := secret "secret/data/finance-api/api" -}}
+          {
+            "database": {
+              "host": "${DB_HOST}",
+              "port": 5432,
+              "name": "${DB_NAME}",
+              "username": "{{ .Data.username }}",
+              "password": "{{ .Data.password }}"
+            },
+            "api": {
+              "key": "{{ $api.Data.data.api_key }}",
+              "secret": "{{ $api.Data.data.api_secret }}"
+            },
+            "vault": {
+              "lease_id": "{{ .LeaseID }}",
+              "lease_duration": {{ .LeaseDuration }},
+              "renewable": {{ .Renewable }}
+            }
+          }
+          {{- end -}}
+        
+        # Agent cache configuration
+        vault.hashicorp.com/agent-cache-enable: "true"
+        
+        # Resource limits for the Vault Agent sidecar
+        vault.hashicorp.com/agent-limits-cpu: "100m"
+        vault.hashicorp.com/agent-limits-mem: "128Mi"
+        vault.hashicorp.com/agent-requests-cpu: "50m"
+        vault.hashicorp.com/agent-requests-mem: "64Mi"
+    
+    spec:
+      serviceAccountName: app-vault
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+        - name: app
+          image: "${ECR_REGISTRY}/finance-api:1.0.0"
+          imagePullPolicy: Always
+          
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          
+          envFrom:
+            - configMapRef:
+                name: app-config-vault
+          
+          # The Vault Agent writes secrets to /vault/secrets
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30  # Wait for Vault Agent
+            periodSeconds: 15
+          
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfied: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: finance-api
+              app.kubernetes.io/scenario: vault
+
+---
+# -----------------------------------------------------------------------------
+# Service
+# -----------------------------------------------------------------------------
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: finance-api-vault
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: finance-api
+    app.kubernetes.io/scenario: vault
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: finance-api
+    app.kubernetes.io/scenario: vault
+
+---
+# -----------------------------------------------------------------------------
+# Horizontal Pod Autoscaler
+# -----------------------------------------------------------------------------
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: finance-api-vault
+  namespace: apps
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: finance-api-vault
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# -----------------------------------------------------------------------------
+# Pod Disruption Budget
+# -----------------------------------------------------------------------------
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: finance-api-vault
+  namespace: apps
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finance-api
+      app.kubernetes.io/scenario: vault
+
+---
+# -----------------------------------------------------------------------------
+# Network Policy - Allow Vault Access
+# -----------------------------------------------------------------------------
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-vault-egress
+  namespace: apps
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/scenario: vault
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vault
+      ports:
+        - protocol: TCP
+          port: 8200

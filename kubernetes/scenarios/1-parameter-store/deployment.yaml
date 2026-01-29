@@ -1,0 +1,310 @@
+# =============================================================================
+# Scenario A: SSM Parameter Store with Secrets Store CSI Driver
+# =============================================================================
+# This deployment demonstrates how to use AWS Systems Manager Parameter Store
+# with the Secrets Store CSI Driver to inject secrets into pods.
+#
+# How it works:
+# 1. Secrets Store CSI Driver mounts a tmpfs volume at /mnt/secrets
+# 2. The AWS Provider fetches secrets from Parameter Store
+# 3. Secrets are made available as files in the mounted volume
+# 4. Optionally, secrets can be synced to Kubernetes Secrets
+#
+# Pros:
+# - Cost effective (free for Standard tier)
+# - Simple hierarchy organization
+# - No additional operators needed
+#
+# Cons:
+# - No automatic rotation
+# - 8KB size limit
+# - Manual sync required for updates
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Service Account with IRSA
+# -----------------------------------------------------------------------------
+# This service account is annotated with the IAM role that has permissions
+# to read from Parameter Store and decrypt with KMS.
+# -----------------------------------------------------------------------------
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-parameter-store
+  namespace: apps
+  annotations:
+    # This ARN will be populated by Terraform
+    eks.amazonaws.com/role-arn: "${PARAMETER_STORE_ROLE_ARN}"
+  labels:
+    app.kubernetes.io/name: finance-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/scenario: parameter-store
+
+---
+# -----------------------------------------------------------------------------
+# SecretProviderClass - Defines what secrets to fetch
+# -----------------------------------------------------------------------------
+# This custom resource tells the CSI driver which secrets to fetch
+# from Parameter Store and how to mount them.
+# -----------------------------------------------------------------------------
+
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: parameter-store-secrets
+  namespace: apps
+spec:
+  provider: aws
+  parameters:
+    # AWS region
+    region: "${AWS_REGION}"
+    
+    # List of objects to fetch from Parameter Store
+    objects: |
+      - objectName: "/${PROJECT_NAME}/database/password"
+        objectType: "ssmparameter"
+        objectAlias: "db-password"
+      - objectName: "/${PROJECT_NAME}/database/connection-string"
+        objectType: "ssmparameter"
+        objectAlias: "db-connection-string"
+      - objectName: "/${PROJECT_NAME}/api/key"
+        objectType: "ssmparameter"
+        objectAlias: "api-key"
+  
+  # Sync to Kubernetes Secret (optional but recommended)
+  # This creates a native K8s Secret that can be used as env vars
+  secretObjects:
+    - secretName: app-secrets-from-parameter-store
+      type: Opaque
+      data:
+        - objectName: db-password
+          key: DB_PASSWORD
+        - objectName: api-key
+          key: API_KEY
+
+---
+# -----------------------------------------------------------------------------
+# ConfigMap - Non-sensitive configuration
+# -----------------------------------------------------------------------------
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config-parameter-store
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: finance-api
+    app.kubernetes.io/scenario: parameter-store
+data:
+  DB_HOST: "${DB_HOST}"
+  DB_PORT: "5432"
+  DB_NAME: "${DB_NAME}"
+  DB_USERNAME: "${DB_USERNAME}"
+  SECRET_SOURCE: "file"
+  SECRETS_PATH: "/mnt/secrets"
+  PORT: "8080"
+  LOG_LEVEL: "INFO"
+
+---
+# -----------------------------------------------------------------------------
+# Deployment
+# -----------------------------------------------------------------------------
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-api-parameter-store
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: finance-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/scenario: parameter-store
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finance-api
+      app.kubernetes.io/scenario: parameter-store
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finance-api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/scenario: parameter-store
+      annotations:
+        # Force pod restart when secrets change
+        secrets-store.csi.k8s.io/rotation-poll-interval: "120s"
+    spec:
+      serviceAccountName: app-parameter-store
+      
+      # Security Context (Pod level)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+        - name: app
+          image: "${ECR_REGISTRY}/finance-api:1.0.0"
+          imagePullPolicy: Always
+          
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          
+          # Environment from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: app-config-parameter-store
+          
+          # Environment from synced K8s Secret (optional approach)
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets-from-parameter-store
+                  key: DB_PASSWORD
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets-from-parameter-store
+                  key: API_KEY
+          
+          # Volume mount for secrets (file-based approach)
+          volumeMounts:
+            - name: secrets-store
+              mountPath: /mnt/secrets
+              readOnly: true
+          
+          # Resource limits
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          
+          # Security Context (Container level)
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      
+      # Volumes
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: parameter-store-secrets
+      
+      # Topology spread for high availability
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfied: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: finance-api
+              app.kubernetes.io/scenario: parameter-store
+
+---
+# -----------------------------------------------------------------------------
+# Service
+# -----------------------------------------------------------------------------
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: finance-api-parameter-store
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: finance-api
+    app.kubernetes.io/scenario: parameter-store
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: finance-api
+    app.kubernetes.io/scenario: parameter-store
+
+---
+# -----------------------------------------------------------------------------
+# Horizontal Pod Autoscaler
+# -----------------------------------------------------------------------------
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: finance-api-parameter-store
+  namespace: apps
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: finance-api-parameter-store
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# -----------------------------------------------------------------------------
+# Pod Disruption Budget
+# -----------------------------------------------------------------------------
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: finance-api-parameter-store
+  namespace: apps
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finance-api
+      app.kubernetes.io/scenario: parameter-store

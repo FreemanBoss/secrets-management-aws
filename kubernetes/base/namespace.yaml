@@ -1,0 +1,179 @@
+# =============================================================================
+# Kubernetes Namespace Configuration
+# =============================================================================
+# Creates the 'apps' namespace where all demo applications will run.
+# This namespace is configured with:
+# - Resource quotas
+# - Network policies
+# - Pod security standards
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apps
+  labels:
+    name: apps
+    environment: demo
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+
+---
+# =============================================================================
+# Resource Quota
+# =============================================================================
+# Limits the total resources that can be consumed in the namespace.
+# Critical for preventing resource exhaustion in multi-tenant clusters.
+# =============================================================================
+
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: apps-quota
+  namespace: apps
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "20"
+    services: "10"
+    secrets: "20"
+    configmaps: "20"
+    persistentvolumeclaims: "10"
+
+---
+# =============================================================================
+# Limit Range
+# =============================================================================
+# Sets default resource requests/limits for pods in the namespace.
+# Ensures all pods have defined resource boundaries.
+# =============================================================================
+
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: apps-limits
+  namespace: apps
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      min:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: 2000m
+        memory: 2Gi
+
+---
+# =============================================================================
+# Network Policy - Default Deny
+# =============================================================================
+# Implements zero-trust networking by default.
+# All ingress/egress is denied unless explicitly allowed.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: apps
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# =============================================================================
+# Network Policy - Allow DNS
+# =============================================================================
+# Allows pods to resolve DNS (required for service discovery).
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: apps
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# =============================================================================
+# Network Policy - Allow Ingress from Ingress Controller
+# =============================================================================
+# Allows traffic from the ingress controller namespace.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-controller
+  namespace: apps
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+# =============================================================================
+# Network Policy - Allow Egress to RDS
+# =============================================================================
+# Allows pods to connect to RDS PostgreSQL.
+# The CIDR should be updated to match your database subnet.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rds-egress
+  namespace: apps
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Egress
+  egress:
+    # Allow PostgreSQL to database subnets
+    - to:
+        - ipBlock:
+            cidr: 10.0.21.0/24  # Database subnet 1
+        - ipBlock:
+            cidr: 10.0.22.0/24  # Database subnet 2
+        - ipBlock:
+            cidr: 10.0.23.0/24  # Database subnet 3
+      ports:
+        - protocol: TCP
+          port: 5432
