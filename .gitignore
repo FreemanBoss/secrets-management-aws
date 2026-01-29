@@ -43,6 +43,11 @@ override.tf.json
 terraform.rc
 
 # -----------------------------------------------------------------------------
+# Documentation (personal articles - not for public repo)
+# -----------------------------------------------------------------------------
+docs/*.md
+
+# -----------------------------------------------------------------------------
 # Secrets & Credentials (CRITICAL!)
 # -----------------------------------------------------------------------------
 
@@ -272,3 +277,6 @@ vendor/
 
 # Generated documentation
 docs/generated/
+
+# Documentation (personal articles)
+docs/*.md

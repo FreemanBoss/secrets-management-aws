@@ -91,10 +91,13 @@ kubectl logs -n demo -l app=demo-vault-csi
 | Multi-cloud | ❌ | ❌ | ✅ |
 | Audit | CloudTrail | CloudTrail | Built-in |
 
-## Documentation
+## Key Features
 
-- [Full Article](docs/ARTICLE.md) - Comprehensive walkthrough
-- [Demo Guide](docs/06-demo-guide.md) - Demo application details
+- 🔐 **Three Secrets Solutions** — Parameter Store, Secrets Manager, and HashiCorp Vault
+- 🏗️ **Production-Ready Terraform** — Modular IaC for VPC, EKS, RDS, and IAM
+- 🔑 **IRSA Integration** — Secure pod-level AWS authentication
+- 📦 **Demo Applications** — Working examples for each integration pattern
+- 🛡️ **CSI Driver & ESO** — Multiple Kubernetes integration approaches
 
 ## Architecture
 
