@@ -1,14 +1,10 @@
-# =============================================================================
+
 # Terraform Variables Definition
-# =============================================================================
+
 # This file contains all variable definitions for the secrets management
 # infrastructure. Variables are organized by category for clarity.
-# =============================================================================
 
-# -----------------------------------------------------------------------------
 # General Configuration
-# -----------------------------------------------------------------------------
-
 variable "project_name" {
   description = "Name of the project, used for resource naming"
   type        = string
@@ -33,8 +29,6 @@ variable "environment" {
 
 # -----------------------------------------------------------------------------
 # AWS Region Configuration
-# -----------------------------------------------------------------------------
-
 variable "aws_region" {
   description = "Primary AWS region for deployment"
   type        = string
@@ -55,8 +49,6 @@ variable "availability_zones" {
 
 # -----------------------------------------------------------------------------
 # Networking Configuration
-# -----------------------------------------------------------------------------
-
 variable "vpc_cidr" {
   description = "CIDR block for the VPC"
   type        = string
@@ -100,8 +92,6 @@ variable "single_nat_gateway" {
 
 # -----------------------------------------------------------------------------
 # EKS Configuration
-# -----------------------------------------------------------------------------
-
 variable "enable_eks" {
   description = "Enable EKS cluster deployment"
   type        = bool
@@ -146,8 +136,6 @@ variable "eks_node_disk_size" {
 
 # -----------------------------------------------------------------------------
 # Database Configuration
-# -----------------------------------------------------------------------------
-
 variable "enable_rds" {
   description = "Enable RDS PostgreSQL deployment"
   type        = bool
@@ -204,8 +192,6 @@ variable "db_backup_retention_period" {
 
 # -----------------------------------------------------------------------------
 # Secrets Management Configuration
-# -----------------------------------------------------------------------------
-
 variable "enable_parameter_store" {
   description = "Enable SSM Parameter Store scenario"
   type        = bool
@@ -237,8 +223,6 @@ variable "secrets_rotation_days" {
 
 # -----------------------------------------------------------------------------
 # HashiCorp Vault Configuration
-# -----------------------------------------------------------------------------
-
 variable "vault_namespace" {
   description = "Kubernetes namespace for Vault"
   type        = string
@@ -259,8 +243,6 @@ variable "vault_replicas" {
 
 # -----------------------------------------------------------------------------
 # Monitoring Configuration
-# -----------------------------------------------------------------------------
-
 variable "enable_monitoring" {
   description = "Enable Prometheus/Grafana monitoring stack"
   type        = bool
@@ -281,8 +263,6 @@ variable "log_retention_days" {
 
 # -----------------------------------------------------------------------------
 # Tags
-# -----------------------------------------------------------------------------
-
 variable "additional_tags" {
   description = "Additional tags to apply to all resources"
   type        = map(string)

@@ -1,27 +1,11 @@
-# =============================================================================
-# Demo Deployments Showcasing All Three Secrets Management Approaches
-# =============================================================================
-# This file contains three demo applications that demonstrate:
-# 1. External Secrets Operator (sync AWS Secrets Manager to K8s Secrets)
-# 2. Secrets Store CSI Driver (mount secrets directly from AWS)
-# 3. Vault Agent Injector (inject secrets using Vault)
-# =============================================================================
+# Demo Deployments - Three Secrets Management Approaches
+# Each deployment demonstrates a different integration pattern
 
----
-# =============================================================================
-# Approach 1: External Secrets Operator Demo
-# =============================================================================
-# Uses ExternalSecret to sync AWS Secrets Manager secrets to K8s Secrets
-# Secrets are available as environment variables from the synced K8s Secret
-# =============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: demo-external-secrets
   namespace: demo
-  labels:
-    app: demo-external-secrets
-    secrets-provider: external-secrets
 spec:
   replicas: 1
   selector:
@@ -31,44 +15,21 @@ spec:
     metadata:
       labels:
         app: demo-external-secrets
-        secrets-provider: external-secrets
     spec:
       serviceAccountName: demo-app
       containers:
-        - name: demo-app
+        - name: app
           image: busybox:1.36
-          command:
-            - "/bin/sh"
-            - "-c"
+          command: ["/bin/sh", "-c"]
+          args:
             - |
-              echo "============================================="
-              echo "Demo: External Secrets Operator"
-              echo "============================================="
-              echo "Secrets synced from AWS Secrets Manager to K8s Secret"
-              echo ""
-              echo "Database Credentials:"
-              echo "  DB_USER: $DB_USER"
-              echo "  DB_PASSWORD: [REDACTED - ${#DB_PASSWORD} chars]"
-              echo "  DB_HOST: $DB_HOST"
-              echo "  DB_PORT: $DB_PORT"
-              echo "  DB_NAME: $DB_NAME"
-              echo ""
-              echo "API Credentials:"
-              echo "  API_KEY: [REDACTED - ${#API_KEY} chars]"
-              echo "  API_SECRET: [REDACTED - ${#API_SECRET} chars]"
-              echo ""
-              echo "Secrets are refreshed automatically based on refreshInterval"
-              echo "============================================="
-              
-              # Keep container running
-              while true; do
-                sleep 3600
-              done
+              echo "External Secrets Operator Demo"
+              echo "DB_HOST: $DB_HOST"
+              echo "DB_USER: $DB_USER"
+              sleep infinity
           envFrom:
             - secretRef:
                 name: database-credentials
-            - secretRef:
-                name: api-credentials
           resources:
             requests:
               memory: "32Mi"
@@ -76,22 +37,12 @@ spec:
             limits:
               memory: "64Mi"
               cpu: "100m"
-
 ---
-# =============================================================================
-# Approach 2: Secrets Store CSI Driver Demo (Parameter Store)
-# =============================================================================
-# Mounts secrets directly from AWS Parameter Store as files
-# No intermediate K8s Secret needed (unless secretObjects is used)
-# =============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: demo-csi-parameter-store
   namespace: demo
-  labels:
-    app: demo-csi-parameter-store
-    secrets-provider: csi-driver
 spec:
   replicas: 1
   selector:
@@ -101,69 +52,20 @@ spec:
     metadata:
       labels:
         app: demo-csi-parameter-store
-        secrets-provider: csi-driver
     spec:
       serviceAccountName: demo-app
       containers:
-        - name: demo-app
+        - name: app
           image: busybox:1.36
-          command:
-            - "/bin/sh"
-            - "-c"
+          command: ["/bin/sh", "-c"]
+          args:
             - |
-              echo "============================================="
-              echo "Demo: Secrets Store CSI Driver (Parameter Store)"
-              echo "============================================="
-              echo "Secrets mounted directly from AWS Parameter Store"
-              echo ""
-              echo "Mounted Secret Files in /mnt/secrets-store:"
-              ls -la /mnt/secrets-store/ 2>/dev/null || echo "  (waiting for secrets to mount...)"
-              echo ""
-              echo "Secret Contents:"
-              for file in /mnt/secrets-store/*; do
-                if [ -f "$file" ]; then
-                  filename=$(basename "$file")
-                  content=$(cat "$file")
-                  if echo "$filename" | grep -qi "password\|secret\|key"; then
-                    echo "  $filename: [REDACTED - ${#content} chars]"
-                  else
-                    echo "  $filename: $content"
-                  fi
-                fi
-              done
-              echo ""
-              echo "Environment Variables (from synced K8s Secret):"
-              echo "  DB_USER: $DB_USER"
-              echo "  DB_PASSWORD: [REDACTED]"
-              echo "  API_KEY: [REDACTED]"
-              echo "============================================="
-              
-              # Keep container running
-              while true; do
-                sleep 3600
-              done
-          env:
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: param-store-secrets
-                  key: DB_USER
-                  optional: true
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: param-store-secrets
-                  key: DB_PASSWORD
-                  optional: true
-            - name: API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: param-store-secrets
-                  key: API_KEY
-                  optional: true
+              echo "CSI Driver - Parameter Store Demo"
+              cat /mnt/secrets/*
+              sleep infinity
           volumeMounts:
-            - name: secrets-store
-              mountPath: "/mnt/secrets-store"
+            - name: secrets
+              mountPath: "/mnt/secrets"
               readOnly: true
           resources:
             requests:
@@ -173,27 +75,18 @@ spec:
               memory: "64Mi"
               cpu: "100m"
       volumes:
-        - name: secrets-store
+        - name: secrets
           csi:
             driver: secrets-store.csi.k8s.io
             readOnly: true
             volumeAttributes:
-              secretProviderClass: aws-param-store-secrets
-
+              secretProviderClass: "aws-parameter-store"
 ---
-# =============================================================================
-# Approach 2b: Secrets Store CSI Driver Demo (Secrets Manager)
-# =============================================================================
-# Mounts secrets directly from AWS Secrets Manager as files
-# =============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: demo-csi-secrets-manager
   namespace: demo
-  labels:
-    app: demo-csi-secrets-manager
-    secrets-provider: csi-driver
 spec:
   replicas: 1
   selector:
@@ -203,46 +96,20 @@ spec:
     metadata:
       labels:
         app: demo-csi-secrets-manager
-        secrets-provider: csi-driver
     spec:
       serviceAccountName: demo-app
       containers:
-        - name: demo-app
+        - name: app
           image: busybox:1.36
-          command:
-            - "/bin/sh"
-            - "-c"
+          command: ["/bin/sh", "-c"]
+          args:
             - |
-              echo "============================================="
-              echo "Demo: Secrets Store CSI Driver (Secrets Manager)"
-              echo "============================================="
-              echo "Secrets mounted directly from AWS Secrets Manager"
-              echo ""
-              echo "Mounted Secret Files in /mnt/secrets-store:"
-              ls -la /mnt/secrets-store/ 2>/dev/null || echo "  (waiting for secrets to mount...)"
-              echo ""
-              echo "Secret Contents (individual keys from JSON secrets):"
-              for file in /mnt/secrets-store/*; do
-                if [ -f "$file" ]; then
-                  filename=$(basename "$file")
-                  content=$(cat "$file")
-                  if echo "$filename" | grep -qi "password\|secret\|key"; then
-                    echo "  $filename: [REDACTED - ${#content} chars]"
-                  else
-                    echo "  $filename: $content"
-                  fi
-                fi
-              done
-              echo ""
-              echo "============================================="
-              
-              # Keep container running
-              while true; do
-                sleep 3600
-              done
+              echo "CSI Driver - Secrets Manager Demo"
+              cat /mnt/secrets/*
+              sleep infinity
           volumeMounts:
-            - name: secrets-store
-              mountPath: "/mnt/secrets-store"
+            - name: secrets
+              mountPath: "/mnt/secrets"
               readOnly: true
           resources:
             requests:
@@ -252,28 +119,18 @@ spec:
               memory: "64Mi"
               cpu: "100m"
       volumes:
-        - name: secrets-store
+        - name: secrets
           csi:
             driver: secrets-store.csi.k8s.io
             readOnly: true
             volumeAttributes:
-              secretProviderClass: aws-secrets-manager-secrets
-
+              secretProviderClass: "aws-secrets-manager"
 ---
-# =============================================================================
-# Approach 3: Vault with CSI Driver
-# =============================================================================
-# Uses Secrets Store CSI Driver to mount Vault secrets as files
-# This is more reliable in EKS than the Agent Injector approach
-# =============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: demo-vault-csi
   namespace: demo
-  labels:
-    app: demo-vault-csi
-    secrets-provider: vault
 spec:
   replicas: 1
   selector:
@@ -283,69 +140,20 @@ spec:
     metadata:
       labels:
         app: demo-vault-csi
-        secrets-provider: vault
     spec:
       serviceAccountName: vault-demo-app
       containers:
-        - name: demo-app
+        - name: app
           image: busybox:1.36
-          command:
-            - "/bin/sh"
-            - "-c"
+          command: ["/bin/sh", "-c"]
+          args:
             - |
-              echo "============================================="
-              echo "Demo: Vault with CSI Driver"
-              echo "============================================="
-              echo "Secrets mounted from HashiCorp Vault via CSI Driver"
-              echo ""
-              echo "Vault secrets directory /mnt/vault-secrets:"
-              ls -la /mnt/vault-secrets/ 2>/dev/null || echo "  (waiting for secrets to mount...)"
-              echo ""
-              echo "Secret Contents:"
-              for file in /mnt/vault-secrets/*; do
-                if [ -f "$file" ]; then
-                  filename=$(basename "$file")
-                  content=$(cat "$file")
-                  if echo "$filename" | grep -qi "password\|secret\|key"; then
-                    echo "  $filename: [REDACTED - ${#content} chars]"
-                  else
-                    echo "  $filename: $content"
-                  fi
-                fi
-              done
-              echo ""
-              echo "Environment Variables (from synced K8s Secret):"
-              echo "  DB_USER: $DB_USER"
-              echo "  DB_PASSWORD: [REDACTED]"
-              echo "  API_KEY: [REDACTED]"
-              echo "============================================="
-              
-              # Keep container running
-              while true; do
-                sleep 3600
-              done
-          env:
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: vault-csi-secrets
-                  key: DB_USER
-                  optional: true
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: vault-csi-secrets
-                  key: DB_PASSWORD
-                  optional: true
-            - name: API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: vault-csi-secrets
-                  key: API_KEY
-                  optional: true
+              echo "Vault CSI Provider Demo"
+              cat /mnt/secrets/*
+              sleep infinity
           volumeMounts:
-            - name: vault-secrets
-              mountPath: "/mnt/vault-secrets"
+            - name: secrets
+              mountPath: "/mnt/secrets"
               readOnly: true
           resources:
             requests:
@@ -355,9 +163,9 @@ spec:
               memory: "64Mi"
               cpu: "100m"
       volumes:
-        - name: vault-secrets
+        - name: secrets
           csi:
             driver: secrets-store.csi.k8s.io
             readOnly: true
             volumeAttributes:
-              secretProviderClass: vault-secrets-csi
+              secretProviderClass: "vault-database"

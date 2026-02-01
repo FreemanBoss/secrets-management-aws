@@ -1,17 +1,13 @@
-# =============================================================================
+
 # Terraform Outputs
-# =============================================================================
+
 # This file exports important values from the infrastructure deployment.
 # These outputs are essential for:
 # - Configuring kubectl and Helm
 # - Application deployment
 # - Documentation and runbooks
-# =============================================================================
 
-# -----------------------------------------------------------------------------
 # VPC Outputs
-# -----------------------------------------------------------------------------
-
 output "vpc_id" {
   description = "The ID of the VPC"
   value       = module.vpc.vpc_id
@@ -44,8 +40,6 @@ output "database_subnet_group_name" {
 
 # -----------------------------------------------------------------------------
 # EKS Outputs
-# -----------------------------------------------------------------------------
-
 output "eks_cluster_name" {
   description = "Name of the EKS cluster"
   value       = var.enable_eks ? module.eks[0].cluster_name : null
@@ -79,8 +73,6 @@ output "eks_kubectl_config_command" {
 
 # -----------------------------------------------------------------------------
 # RDS Outputs
-# -----------------------------------------------------------------------------
-
 output "rds_endpoint" {
   description = "The connection endpoint for the RDS instance"
   value       = var.enable_rds ? module.rds[0].db_instance_endpoint : null
@@ -109,8 +101,6 @@ output "rds_security_group_id" {
 
 # -----------------------------------------------------------------------------
 # Secrets Management Outputs
-# -----------------------------------------------------------------------------
-
 # Parameter Store
 output "parameter_store_db_password_arn" {
   description = "ARN of the database password in Parameter Store"
@@ -146,8 +136,6 @@ output "vault_service_url" {
 
 # -----------------------------------------------------------------------------
 # IAM Outputs (for IRSA)
-# -----------------------------------------------------------------------------
-
 output "parameter_store_role_arn" {
   description = "IAM role ARN for Parameter Store access (IRSA)"
   value       = var.enable_parameter_store && var.enable_eks ? module.parameter_store_irsa[0].iam_role_arn : null
@@ -165,8 +153,6 @@ output "vault_role_arn" {
 
 # -----------------------------------------------------------------------------
 # KMS Outputs
-# -----------------------------------------------------------------------------
-
 output "kms_key_arn" {
   description = "ARN of the KMS key used for secrets encryption"
   value       = aws_kms_key.secrets.arn
@@ -179,8 +165,6 @@ output "kms_key_alias" {
 
 # -----------------------------------------------------------------------------
 # Useful Commands
-# -----------------------------------------------------------------------------
-
 output "useful_commands" {
   description = "Helpful commands for interacting with the infrastructure"
   value = var.enable_eks ? {

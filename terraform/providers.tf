@@ -1,10 +1,8 @@
-# =============================================================================
+
 # Terraform Provider Configuration
-# =============================================================================
+
 # This file defines the required providers and their versions.
 # We pin versions to ensure reproducibility and avoid breaking changes.
-# =============================================================================
-
 terraform {
   required_version = ">= 1.6.0"
 
@@ -59,8 +57,6 @@ terraform {
 
 # =============================================================================
 # Provider Configurations
-# =============================================================================
-
 # Primary AWS Provider
 provider "aws" {
   region = var.aws_region

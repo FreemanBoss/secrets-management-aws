@@ -1,75 +1,23 @@
-# =============================================================================
-# Approach 3: HashiCorp Vault with Vault Agent Injector
-# =============================================================================
-# This demonstrates using Vault Agent Injector to automatically inject
-# secrets into pods as files using annotations
-#
-# Benefits:
-# - Dynamic secrets with automatic rotation
-# - Fine-grained access control via Vault policies
-# - Audit logging of all secret access
-# - Secret leasing and revocation
-# - Multiple secrets engines (KV, database, PKI, etc.)
-# =============================================================================
+# HashiCorp Vault Integration
+# CSI Driver configuration for Vault secrets
 
-# Vault Policy for demo application
-# This needs to be created in Vault
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: vault-policy-demo
-  namespace: demo
-data:
-  demo-policy.hcl: |
-    # Allow read access to database credentials
-    path "secret/data/database/*" {
-      capabilities = ["read", "list"]
-    }
-    
-    # Allow read access to API credentials
-    path "secret/data/api/*" {
-      capabilities = ["read", "list"]
-    }
-    
-    # Allow read access to app configuration
-    path "secret/data/app/*" {
-      capabilities = ["read", "list"]
-    }
----
-# SecretProviderClass for Vault CSI Provider
 apiVersion: secrets-store.csi.x-k8s.io/v1
 kind: SecretProviderClass
 metadata:
-  name: vault-secrets-csi
+  name: vault-database
   namespace: demo
 spec:
   provider: vault
   parameters:
-    vaultAddress: "http://vault.vault:8200"
+    vaultAddress: "http://vault.vault.svc.cluster.local:8200"
     roleName: "demo-app"
     objects: |
       - objectName: "db-username"
-        secretPath: "secret/data/database/credentials"
+        secretPath: "secret/data/database"
         secretKey: "username"
       - objectName: "db-password"
-        secretPath: "secret/data/database/credentials"
+        secretPath: "secret/data/database"
         secretKey: "password"
       - objectName: "db-host"
-        secretPath: "secret/data/database/credentials"
+        secretPath: "secret/data/database"
         secretKey: "host"
-      - objectName: "api-key"
-        secretPath: "secret/data/api/credentials"
-        secretKey: "api_key"
-  secretObjects:
-    - secretName: vault-csi-secrets
-      type: Opaque
-      data:
-        - objectName: "db-username"
-          key: DB_USER
-        - objectName: "db-password"
-          key: DB_PASSWORD
-        - objectName: "db-host"
-          key: DB_HOST
-        - objectName: "api-key"
-          key: API_KEY

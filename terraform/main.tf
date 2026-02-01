@@ -1,20 +1,7 @@
-# =============================================================================
 # Main Infrastructure Configuration
-# =============================================================================
-# This file orchestrates the deployment of all infrastructure components
-# for the Secrets Management comparison project.
-# =============================================================================
-
-# -----------------------------------------------------------------------------
-# Data Sources
-# -----------------------------------------------------------------------------
 
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
-
-# -----------------------------------------------------------------------------
-# Local Variables
-# -----------------------------------------------------------------------------
 
 locals {
   name = "${var.project_name}-${var.environment}"
@@ -29,19 +16,12 @@ locals {
   )
 }
 
-# -----------------------------------------------------------------------------
 # KMS Key for Secrets Encryption
-# -----------------------------------------------------------------------------
-# A single KMS key is used to encrypt all secrets across
-# Parameter Store, Secrets Manager, and EBS volumes.
-# -----------------------------------------------------------------------------
-
 resource "aws_kms_key" "secrets" {
   description             = "KMS key for secrets encryption - ${local.name}"
   deletion_window_in_days = 7
   enable_key_rotation     = true
   
-  # Key Policy
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -112,8 +92,6 @@ resource "aws_kms_alias" "secrets" {
 
 # -----------------------------------------------------------------------------
 # VPC Networking
-# -----------------------------------------------------------------------------
-
 module "vpc" {
   source = "./modules/networking"
 
@@ -146,8 +124,6 @@ module "vpc" {
 
 # -----------------------------------------------------------------------------
 # EKS Cluster
-# -----------------------------------------------------------------------------
-
 module "eks" {
   source = "./modules/eks"
   count  = var.enable_eks ? 1 : 0
@@ -183,8 +159,6 @@ module "eks" {
 
 # -----------------------------------------------------------------------------
 # RDS PostgreSQL
-# -----------------------------------------------------------------------------
-
 module "rds" {
   source = "./modules/rds"
   count  = var.enable_rds ? 1 : 0
@@ -226,8 +200,6 @@ module "rds" {
 
 # =============================================================================
 # SCENARIO A: SSM Parameter Store
-# =============================================================================
-
 resource "aws_ssm_parameter" "db_password" {
   count = var.enable_parameter_store && var.enable_rds ? 1 : 0
 
@@ -331,8 +303,6 @@ resource "aws_iam_policy" "parameter_store_read" {
 
 # =============================================================================
 # SCENARIO B: AWS Secrets Manager
-# =============================================================================
-
 resource "aws_secretsmanager_secret" "db_credentials" {
   count = var.enable_secrets_manager && var.enable_rds ? 1 : 0
 
@@ -439,8 +409,6 @@ resource "aws_iam_policy" "secrets_manager_read" {
 
 # =============================================================================
 # SCENARIO C: HashiCorp Vault
-# =============================================================================
-
 # IRSA for Vault
 module "vault_irsa" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
@@ -514,8 +482,6 @@ module "vault_app_irsa" {
 
 # =============================================================================
 # Random Values for Demo
-# =============================================================================
-
 resource "random_password" "api_key" {
   length  = 32
   special = false
@@ -528,8 +494,6 @@ resource "random_password" "api_secret" {
 
 # =============================================================================
 # Security Group for RDS (from EKS access)
-# =============================================================================
-
 module "rds_security_group" {
   source  = "terraform-aws-modules/security-group/aws"
   version = "5.2.0"
