@@ -26,8 +26,6 @@ vault-init.json
 vault-keys.json
 *.vault
 .vault-token
-*-secret.yaml
-*-secrets.yaml
 kubeconfig
 *.kubeconfig
 .env
